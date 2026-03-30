@@ -1,0 +1,12 @@
+{
+  "name": "code-style",
+  "version": "1.0.0",
+  "description": "Code style enforcement - comments, imports, file length, icons/emojis, TODOs, library choices",
+  "author": {
+    "name": "Matt Hesketh",
+    "email": "matt@heskethwebdesign.co.uk"
+  },
+  "repository": "https://github.com/wrxck/code-style",
+  "license": "MIT",
+  "keywords": ["style", "comments", "imports", "file-length", "icons", "emojis", "todo", "libraries"]
+}
