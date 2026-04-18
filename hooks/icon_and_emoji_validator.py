@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """
-Claude Code hook to enforce:
-- prefer Huge Icons for icons in typescript projects
-- never use emojis in code
+Claude Code hook for icon library and emoji usage.
 """
 
 import json
@@ -10,10 +8,8 @@ import re
 import sys
 from pathlib import Path
 
-# typescript/javascript file extensions
 TS_EXTENSIONS = {'.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'}
 
-# icon library imports to flag (prefer Huge Icons instead)
 ICON_LIBRARIES = [
     (r'from\s+[\'"]react-icons', 'react-icons'),
     (r'from\s+[\'"]@heroicons/', '@heroicons'),
@@ -31,158 +27,148 @@ ICON_LIBRARIES = [
     (r'from\s+[\'"]react-feather', 'react-feather'),
 ]
 
-# emoji unicode ranges
 EMOJI_PATTERN = re.compile(
     "["
-    "\U0001F600-\U0001F64F"  # emoticons
-    "\U0001F300-\U0001F5FF"  # symbols & pictographs
-    "\U0001F680-\U0001F6FF"  # transport & map symbols
-    "\U0001F700-\U0001F77F"  # alchemical symbols
-    "\U0001F780-\U0001F7FF"  # geometric shapes extended
-    "\U0001F800-\U0001F8FF"  # supplemental arrows-c
-    "\U0001F900-\U0001F9FF"  # supplemental symbols and pictographs
-    "\U0001FA00-\U0001FA6F"  # chess symbols
-    "\U0001FA70-\U0001FAFF"  # symbols and pictographs extended-a
-    "\U00002702-\U000027B0"  # dingbats
-    "\U000024C2-\U0001F251"  # enclosed characters
-    "\U0001F1E0-\U0001F1FF"  # flags
-    "\U00002300-\U000023FF"  # misc technical (includes some emoji)
-    "\U00002600-\U000026FF"  # misc symbols
-    "\U00002700-\U000027BF"  # dingbats
-    "\U0000FE00-\U0000FE0F"  # variation selectors
-    "\U0001F000-\U0001F02F"  # mahjong tiles
-    "\U0001F0A0-\U0001F0FF"  # playing cards
+    "\U0001F300-\U0001F6FF"
+    "\U0001F900-\U0001F9FF"
+    "\U0001FA70-\U0001FAFF"
+    "\U0001F1E6-\U0001F1FF"
+    "\U00002700-\U000027BF"
+    "\U0001F000-\U0001F02F"
     "]+",
-    flags=re.UNICODE
+    flags=re.UNICODE,
 )
 
-# common emoji shortcodes in strings
 EMOJI_SHORTCODES = [
-    r':\)',
-    r':\(',
-    r':D',
-    r';-?\)',
-    r'<3',
-    r':heart:',
-    r':smile:',
-    r':thumbsup:',
-    r':fire:',
-    r':rocket:',
-    r':star:',
-    r':check:',
-    r':x:',
-    r':warning:',
+    chr(58) + chr(92) + chr(41),
+    chr(58) + chr(92) + chr(40),
+    chr(58) + chr(68),
+    chr(59) + chr(45) + chr(63) + chr(92) + chr(41),
+    chr(60) + chr(51),
+    chr(58) + 'heart' + chr(58),
+    chr(58) + 'smile' + chr(58),
+    chr(58) + 'thumbsup' + chr(58),
+    chr(58) + 'fire' + chr(58),
+    chr(58) + 'rocket' + chr(58),
+    chr(58) + 'star' + chr(58),
+    chr(58) + 'check' + chr(58),
+    chr(58) + 'x' + chr(58),
+    chr(58) + 'warning' + chr(58),
 ]
 
 
-def get_file_extension(file_path: str) -> str:
-    """get the file extension from a path"""
-    return Path(file_path).suffix.lower()
+def strip_strings_and_comments(code):
+    out = []
+    i = 0
+    n = len(code)
+    lc = bc = sq = dq = bt = False
+    while i < n:
+        c = code[i]
+        if lc:
+            if c == '\n':
+                lc = False; out.append(c)
+            else:
+                out.append(' ')
+            i += 1; continue
+        if bc:
+            if c == '*' and i + 1 < n and code[i + 1] == '/':
+                out.append('  '); i += 2; bc = False; continue
+            out.append('\n' if c == '\n' else ' '); i += 1; continue
+        if sq or dq or bt:
+            q = "'" if sq else ('"' if dq else '`')
+            if c == '\\' and i + 1 < n:
+                out.append('  '); i += 2; continue
+            if c == q:
+                out.append(q); i += 1
+                sq = dq = bt = False
+                continue
+            out.append('\n' if c == '\n' else ' '); i += 1; continue
+        if c == '/' and i + 1 < n and code[i + 1] == '/':
+            lc = True; out.append('  '); i += 2; continue
+        if c == '/' and i + 1 < n and code[i + 1] == '*':
+            bc = True; out.append('  '); i += 2; continue
+        if c == "'":
+            sq = True; out.append("'"); i += 1; continue
+        if c == '"':
+            dq = True; out.append('"'); i += 1; continue
+        if c == '`':
+            bt = True; out.append('`'); i += 1; continue
+        out.append(c); i += 1
+    return ''.join(out)
 
 
-def is_typescript_file(file_path: str) -> bool:
-    """check if the file is a typescript/javascript file"""
-    return get_file_extension(file_path) in TS_EXTENSIONS
+def is_ts(fp):
+    return Path(fp).suffix.lower() in TS_EXTENSIONS
 
 
-def check_icon_libraries(content: str, file_path: str) -> list[str]:
-    """check for non-Huge Icons library imports"""
-    if not is_typescript_file(file_path):
+def check_icon_libs(content, fp):
+    if not is_ts(fp):
         return []
-
-    issues = []
-    lines = content.split('\n')
-
-    for line_num, line in enumerate(lines, 1):
-        for pattern, lib_name in ICON_LIBRARIES:
-            if re.search(pattern, line):
-                issues.append(
-                    f"line {line_num}: prefer Huge Icons instead of {lib_name} - "
-                    f"use 'hugeicons-react' package"
-                )
-
-    return issues
+    out = []
+    for ln, line in enumerate(content.split('\n'), 1):
+        for pat, name in ICON_LIBRARIES:
+            if re.search(pat, line):
+                out.append(f"line {ln}: prefer Huge Icons instead of {name} - use 'hugeicons-react' package")
+    return out
 
 
-def check_emojis(content: str, file_path: str) -> list[str]:
-    """check for emoji usage in code"""
-    issues = []
-    lines = content.split('\n')
-
-    for line_num, line in enumerate(lines, 1):
-        # skip comments for emoji shortcode detection (those are handled by comment validator)
-        is_comment = (
-            line.strip().startswith('//') or
-            line.strip().startswith('#') or
-            line.strip().startswith('/*') or
-            line.strip().startswith('*')
-        )
-
-        # check for unicode emojis
-        emoji_matches = EMOJI_PATTERN.findall(line)
-        if emoji_matches:
-            emojis_found = ''.join(emoji_matches)
-            issues.append(
-                f"line {line_num}: emoji detected '{emojis_found}' - "
-                f"do not use emojis in code"
-            )
-
-        # check for emoji shortcodes in strings (not in comments)
-        if not is_comment:
-            # look for shortcodes inside strings
-            string_pattern = r'["\'][^"\']*["\']'
-            strings = re.findall(string_pattern, line)
-            for string in strings:
-                for shortcode in EMOJI_SHORTCODES:
-                    if re.search(shortcode, string):
-                        issues.append(
-                            f"line {line_num}: emoji shortcode detected in string - "
-                            f"do not use emojis in code"
-                        )
-                        break
-
-    return issues
+def check_emojis(content):
+    out = []
+    stripped = strip_strings_and_comments(content)
+    for ln, line in enumerate(stripped.split('\n'), 1):
+        matches = EMOJI_PATTERN.findall(line)
+        if matches:
+            found = ''.join(matches)
+            out.append(f"line {ln}: emoji detected '{found}' - do not use emojis in code")
+    raw_lines = content.split('\n')
+    for ln, line in enumerate(raw_lines, 1):
+        is_comment = line.strip().startswith(('//', '#', '/*', '*'))
+        if is_comment:
+            continue
+        for m in re.finditer(r'["\']([^"\']*)["\']', line):
+            s = m.group(1)
+            if EMOJI_PATTERN.search(s):
+                out.append(f"line {ln}: emoji detected in string - do not use emojis in code")
+                break
+            for sc in EMOJI_SHORTCODES:
+                if re.search(sc, s):
+                    out.append(f"line {ln}: emoji shortcode detected in string - do not use emojis in code")
+                    break
+    return out
 
 
-def validate_content(file_path: str, content: str) -> list[str]:
-    """validate content for icon library usage and emojis"""
-    all_issues = []
+def validate(fp, content):
+    return check_icon_libs(content, fp) + check_emojis(content)
 
-    all_issues.extend(check_icon_libraries(content, file_path))
-    all_issues.extend(check_emojis(content, file_path))
 
-    return all_issues
+def gather(tool_input):
+    edits = tool_input.get('edits')
+    if isinstance(edits, list) and edits:
+        return '\n'.join(e.get('new_string', '') or '' for e in edits if isinstance(e, dict))
+    return tool_input.get('new_string', '') or tool_input.get('content', '') or ''
 
 
 def main():
     try:
-        input_data = json.load(sys.stdin)
+        data = json.load(sys.stdin)
     except json.JSONDecodeError:
         sys.exit(0)
-
-    tool_input = input_data.get('tool_input', {})
-    file_path = tool_input.get('file_path', '')
-
-    if not file_path:
+    ti = data.get('tool_input', {})
+    fp = ti.get('file_path', '')
+    if not fp:
         sys.exit(0)
-
-    # get the content - for Edit it's new_string, for Write it's content
-    new_content = tool_input.get('new_string', '') or tool_input.get('content', '')
-
-    if not new_content:
+    content = gather(ti)
+    if not content:
         sys.exit(0)
-
-    issues = validate_content(file_path, new_content)
-
+    issues = validate(fp, content)
     if issues:
         print("icon/emoji issues detected:", file=sys.stderr)
         for issue in issues[:5]:
-            print(f"  • {issue}", file=sys.stderr)
+            print(f"  - {issue}", file=sys.stderr)
         if len(issues) > 5:
             print(f"  ... and {len(issues) - 5} more issues", file=sys.stderr)
         print("\nreminder: use Huge Icons (hugeicons-react) for icons, never use emojis in code", file=sys.stderr)
         sys.exit(2)
-
     sys.exit(0)
 
 
