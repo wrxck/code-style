@@ -87,7 +87,11 @@ def main():
     if not file_path:
         sys.exit(0)
 
-    content = tool_input.get('new_string', '') or tool_input.get('content', '')
+    edits = tool_input.get('edits')
+    if isinstance(edits, list) and edits:
+        content = '\n'.join(e.get('new_string', '') or '' for e in edits if isinstance(e, dict))
+    else:
+        content = tool_input.get('new_string', '') or tool_input.get('content', '')
     if not content:
         sys.exit(0)
 
@@ -96,9 +100,7 @@ def main():
     if issues:
         print("file length warning:", file=sys.stderr)
         for issue in issues:
-            print(f"  • {issue}", file=sys.stderr)
-        # this is a warning, not a blocker
-        sys.exit(2)
+            print(f"  - {issue}", file=sys.stderr)
 
     sys.exit(0)
 
