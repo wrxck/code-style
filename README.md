@@ -1,5 +1,7 @@
 # code-style
 
+[![CI](https://github.com/wrxck/code-style/actions/workflows/ci.yml/badge.svg)](https://github.com/wrxck/code-style/actions/workflows/ci.yml)
+
 Code style enforcement for Claude Code sessions.
 
 ## What it checks
